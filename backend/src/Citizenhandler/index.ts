@@ -171,6 +171,8 @@ citizenHandler.post("/issue", async (req, res) => {
     category,
     mediaUrl,
     location,
+    latitude,
+    longitude,
     citizenId,
     mlaId,
     organizationId,
@@ -179,7 +181,7 @@ citizenHandler.post("/issue", async (req, res) => {
   } = req.body;
 
   try {
-   
+    // --- Update existing issue ---
     if (update) {
       if (!issueId || !status) {
         return res
@@ -187,10 +189,7 @@ citizenHandler.post("/issue", async (req, res) => {
           .json({ message: "issueId and status are required for update" });
       }
 
-      
-      const existingIssue = await prisma.issue.findUnique({
-        where: { id: issueId },
-      });
+      const existingIssue = await prisma.issue.findUnique({ where: { id: issueId } });
       if (!existingIssue) {
         return res.status(404).json({ message: "Issue not found" });
       }
@@ -200,6 +199,8 @@ citizenHandler.post("/issue", async (req, res) => {
         data: {
           status,
           ...(severity && { severity }),
+          ...(latitude && { latitude }),
+          ...(longitude && { longitude }),
           updatedAt: new Date(),
         },
       });
@@ -210,20 +211,18 @@ citizenHandler.post("/issue", async (req, res) => {
       });
     }
 
-    
+    // --- Create new issue ---
     if (!title || !description || !category || !location || !citizenId) {
       return res.status(400).json({
         message: "title, description, category, location, and citizenId are required",
       });
     }
 
-    
     const citizenExists = await prisma.citizen.findUnique({ where: { id: citizenId } });
     if (!citizenExists) {
       return res.status(400).json({ message: "Invalid citizenId — Citizen not found" });
     }
 
-    
     if (mlaId) {
       const mlaExists = await prisma.mLA.findUnique({ where: { id: mlaId } });
       if (!mlaExists) {
@@ -231,7 +230,6 @@ citizenHandler.post("/issue", async (req, res) => {
       }
     }
 
-    
     if (organizationId) {
       const orgExists = await prisma.organization.findUnique({ where: { id: organizationId } });
       if (!orgExists) {
@@ -239,7 +237,6 @@ citizenHandler.post("/issue", async (req, res) => {
       }
     }
 
-    
     const newIssue = await prisma.issue.create({
       data: {
         title,
@@ -247,6 +244,8 @@ citizenHandler.post("/issue", async (req, res) => {
         category,
         mediaUrl,
         location,
+        ...(latitude && { latitude }),
+        ...(longitude && { longitude }),
         status: "PENDING",
         severity: severity || "LOW",
         citizenId,
@@ -264,4 +263,5 @@ citizenHandler.post("/issue", async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
