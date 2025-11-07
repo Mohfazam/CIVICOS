@@ -14,10 +14,6 @@ const express_1 = require("express");
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 exports.citizenHandler = (0, express_1.Router)();
-// Health check
-exports.citizenHandler.get("/health", (req, res) => {
-    return res.status(200).json({ message: "Citizen route up and running" });
-});
 exports.citizenHandler.get("/details", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { email } = req.query;
     if (!email) {
@@ -29,6 +25,15 @@ exports.citizenHandler.get("/details", (req, res) => __awaiter(void 0, void 0, v
             include: {
                 linked_MLAs: true,
                 linked_Organizations: true,
+                issues: {
+                    include: {
+                        mla: true,
+                        organization: true,
+                    },
+                    orderBy: {
+                        createdAt: 'desc'
+                    }
+                },
             },
         });
         if (!citizen) {
@@ -39,7 +44,7 @@ exports.citizenHandler.get("/details", (req, res) => __awaiter(void 0, void 0, v
                 id: citizen.id,
                 name: citizen.name,
                 email: citizen.email,
-                constituency: "Khairtabad",
+                constituency: citizen.constituency,
                 linked_MLAs: citizen.linked_MLAs.map((mla) => ({
                     id: mla.id,
                     name: mla.name,
@@ -56,6 +61,28 @@ exports.citizenHandler.get("/details", (req, res) => __awaiter(void 0, void 0, v
                     contact_phone: org.contact_phone,
                     address: org.address,
                 })),
+                issues: citizen.issues.map((issue) => ({
+                    id: issue.id,
+                    title: issue.title,
+                    description: issue.description,
+                    category: issue.category,
+                    mediaUrl: issue.mediaUrl,
+                    location: issue.location,
+                    status: issue.status,
+                    severity: issue.severity,
+                    createdAt: issue.createdAt,
+                    updatedAt: issue.updatedAt,
+                    mla: issue.mla ? {
+                        id: issue.mla.id,
+                        name: issue.mla.name,
+                        party: issue.mla.party,
+                    } : null,
+                    organization: issue.organization ? {
+                        id: issue.organization.id,
+                        name: issue.organization.name,
+                        category: issue.organization.category,
+                    } : null,
+                })),
             },
         });
     }
@@ -64,6 +91,68 @@ exports.citizenHandler.get("/details", (req, res) => __awaiter(void 0, void 0, v
         res.status(500).json({ message: "Internal server error" });
     }
 }));
+// citizenHandler.get("/details", async (req, res) => {
+//   const { email } = req.query
+//   if (!email) {
+//     return res.status(400).json({ message: "Email is required" })
+//   }
+//   try {
+//     const citizen = await prisma.citizen.findUnique({
+//       where: { email: String(email) },
+//       include: {
+//         linked_MLAs: true,
+//         linked_Organizations: true,
+//         issues: true, 
+//       },
+//     })
+//     if (!citizen) {
+//       return res.status(404).json({ message: "Citizen not found" })
+//     }
+//     return res.status(200).json({
+//       citizen: {
+//         id: citizen.id,
+//         name: citizen.name,
+//         email: citizen.email,
+//         constituency: citizen.constituency || "Khairtabad",
+//         linked_MLAs: citizen.linked_MLAs.map((mla) => ({
+//           id: mla.id,
+//           name: mla.name,
+//           party: mla.party,
+//           email: mla.email,
+//           phone: mla.phone,
+//           rating: mla.rating,
+//         })),
+//         linked_Organizations: citizen.linked_Organizations.map((org) => ({
+//           id: org.id,
+//           name: org.name,
+//           category: org.category,
+//           contact_email: org.contact_email,
+//           contact_phone: org.contact_phone,
+//           address: org.address,
+//         })),
+//         issues: (citizen.issues || []).map((issue) => ({
+//           id: issue.id,
+//           title: issue.title,
+//           description: issue.description,
+//           category: issue.category,
+//           mediaUrl: issue.mediaUrl,
+//           location: issue.location,
+//           status: issue.status,
+//           severity: issue.severity,
+//           citizenId: issue.citizenId,
+//           mlaId: issue.mlaId,
+//           organizationId: issue.organizationId,
+//           createdAt: issue.createdAt,
+//           updatedAt: issue.updatedAt,
+//         })),
+//       },
+//     })
+//   } catch (error) {
+//     console.error(error)
+//     return res.status(500).json({ message: "Internal server error" })
+//   }
+// })
+// export default citizenHandler
 exports.citizenHandler.post("/issue", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { update, issueId, title, description, category, mediaUrl, location, citizenId, mlaId, organizationId, status, severity, } = req.body;
     try {

@@ -5,7 +5,7 @@ import bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 export const citizenHandler = Router();
 
-// Health check
+
 citizenHandler.get("/details", async (req, res) => {
   const { email } = req.query;
 
@@ -89,76 +89,76 @@ citizenHandler.get("/details", async (req, res) => {
 
 
 
-citizenHandler.get("/details", async (req, res) => {
-  const { email } = req.query
+// citizenHandler.get("/details", async (req, res) => {
+//   const { email } = req.query
 
-  if (!email) {
-    return res.status(400).json({ message: "Email is required" })
-  }
+//   if (!email) {
+//     return res.status(400).json({ message: "Email is required" })
+//   }
 
-  try {
-    const citizen = await prisma.citizen.findUnique({
-      where: { email: String(email) },
-      include: {
-        linked_MLAs: true,
-        linked_Organizations: true,
-        issues: true, 
-      },
-    })
+//   try {
+//     const citizen = await prisma.citizen.findUnique({
+//       where: { email: String(email) },
+//       include: {
+//         linked_MLAs: true,
+//         linked_Organizations: true,
+//         issues: true, 
+//       },
+//     })
 
-    if (!citizen) {
-      return res.status(404).json({ message: "Citizen not found" })
-    }
+//     if (!citizen) {
+//       return res.status(404).json({ message: "Citizen not found" })
+//     }
 
-    return res.status(200).json({
-      citizen: {
-        id: citizen.id,
-        name: citizen.name,
-        email: citizen.email,
-        constituency: citizen.constituency || "Khairtabad",
+//     return res.status(200).json({
+//       citizen: {
+//         id: citizen.id,
+//         name: citizen.name,
+//         email: citizen.email,
+//         constituency: citizen.constituency || "Khairtabad",
 
-        linked_MLAs: citizen.linked_MLAs.map((mla) => ({
-          id: mla.id,
-          name: mla.name,
-          party: mla.party,
-          email: mla.email,
-          phone: mla.phone,
-          rating: mla.rating,
-        })),
+//         linked_MLAs: citizen.linked_MLAs.map((mla) => ({
+//           id: mla.id,
+//           name: mla.name,
+//           party: mla.party,
+//           email: mla.email,
+//           phone: mla.phone,
+//           rating: mla.rating,
+//         })),
 
-        linked_Organizations: citizen.linked_Organizations.map((org) => ({
-          id: org.id,
-          name: org.name,
-          category: org.category,
-          contact_email: org.contact_email,
-          contact_phone: org.contact_phone,
-          address: org.address,
-        })),
+//         linked_Organizations: citizen.linked_Organizations.map((org) => ({
+//           id: org.id,
+//           name: org.name,
+//           category: org.category,
+//           contact_email: org.contact_email,
+//           contact_phone: org.contact_phone,
+//           address: org.address,
+//         })),
 
-        issues: (citizen.issues || []).map((issue) => ({
-          id: issue.id,
-          title: issue.title,
-          description: issue.description,
-          category: issue.category,
-          mediaUrl: issue.mediaUrl,
-          location: issue.location,
-          status: issue.status,
-          severity: issue.severity,
-          citizenId: issue.citizenId,
-          mlaId: issue.mlaId,
-          organizationId: issue.organizationId,
-          createdAt: issue.createdAt,
-          updatedAt: issue.updatedAt,
-        })),
-      },
-    })
-  } catch (error) {
-    console.error(error)
-    return res.status(500).json({ message: "Internal server error" })
-  }
-})
+//         issues: (citizen.issues || []).map((issue) => ({
+//           id: issue.id,
+//           title: issue.title,
+//           description: issue.description,
+//           category: issue.category,
+//           mediaUrl: issue.mediaUrl,
+//           location: issue.location,
+//           status: issue.status,
+//           severity: issue.severity,
+//           citizenId: issue.citizenId,
+//           mlaId: issue.mlaId,
+//           organizationId: issue.organizationId,
+//           createdAt: issue.createdAt,
+//           updatedAt: issue.updatedAt,
+//         })),
+//       },
+//     })
+//   } catch (error) {
+//     console.error(error)
+//     return res.status(500).json({ message: "Internal server error" })
+//   }
+// })
 
-export default citizenHandler
+// export default citizenHandler
 
 
 
