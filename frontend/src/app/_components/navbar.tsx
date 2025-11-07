@@ -17,11 +17,10 @@ export function Navbar() {
 
   const navLinks = [
     { href: "/", label: "Home" },
-    { href: "/report-issue", label: "Report Issue" },
-    { href: "/admin", label: "Admin" },
-    { href: "/map", label: "Map" },
-    { href: "/leaderboard", label: "Leaderboard" },
-    { href: "/mla-report", label: "MLA Report" },
+    { href: "/citizen/report-issue", label: "Report Issue" },
+    { href: "/citizen/map", label: "Map" },
+    { href: "/citizen/leaderboard", label: "Leaderboard" },
+    { href: "/citizen/mla-report", label: "MLA Report" },
   ]
 
   return (
