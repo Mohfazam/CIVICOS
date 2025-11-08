@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, MapPin, Calendar, User, Users } from 'lucide-react';
+import { AlertCircle, MapPin, Calendar, User, Users, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface Citizen {
   id: string;
@@ -40,6 +40,10 @@ interface Issue {
   citizen: Citizen;
   mla: MLA | null;
   organization: any | null;
+  upvoteCount?: number;
+  downvoteCount?: number;
+  hasUpvoted?: boolean;
+  hasDownvoted?: boolean;
 }
 
 interface ApiResponse {
@@ -54,6 +58,15 @@ export default function GlobalIssues() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [citizenId, setCitizenId] = useState<string>('');
+  const [votingStates, setVotingStates] = useState<{ [key: string]: boolean }>({});
+
+  useEffect(() => {
+    const storedCitizenId = localStorage.getItem('id');
+    if (storedCitizenId) {
+      setCitizenId(storedCitizenId);
+    }
+  }, []);
 
   useEffect(() => {
     fetchIssues();
@@ -82,6 +95,60 @@ export default function GlobalIssues() {
     }
   };
 
+  const handleVote = async (issueId: string, voteType: 'upvote' | 'downvote', e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!citizenId) {
+      alert('Please login to vote');
+      return;
+    }
+
+    if (votingStates[issueId]) return;
+
+    setVotingStates(prev => ({ ...prev, [issueId]: true }));
+
+    try {
+      const response = await fetch(
+        `https://civiciobackend.vercel.app/api/v1/citizen/issue/${issueId}/${voteType}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            citizenId: citizenId,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to ${voteType}`);
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setIssues(prevIssues =>
+          prevIssues.map(issue =>
+            issue.id === issueId
+              ? { 
+                  ...issue, 
+                  upvoteCount: data.upvoteCount !== undefined ? data.upvoteCount : issue.upvoteCount,
+                  downvoteCount: data.downvoteCount !== undefined ? data.downvoteCount : issue.downvoteCount,
+                  hasUpvoted: voteType === 'upvote' ? !issue.hasUpvoted : false,
+                  hasDownvoted: voteType === 'downvote' ? !issue.hasDownvoted : false
+                }
+              : issue
+          )
+        );
+      }
+    } catch (err) {
+      console.error(`${voteType} error:`, err);
+      alert(err instanceof Error ? err.message : `Failed to ${voteType}`);
+    } finally {
+      setVotingStates(prev => ({ ...prev, [issueId]: false }));
+    }
+  };
+
   const handleIssueClick = (issueId: string) => {
     router.push(`/global-issues/${issueId}`);
   };
@@ -95,6 +162,7 @@ export default function GlobalIssues() {
       default: return 'bg-[#71717a14] text-[#71717a] border border-[#71717a]';
     }
   };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'RESOLVED': return 'bg-[#10b98114] text-[#10b981] border border-[#10b981]';
@@ -125,6 +193,7 @@ export default function GlobalIssues() {
       </div>
     );
   }
+
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4" style={{background: '#0a0a0a', color: '#fff'}}>
@@ -143,6 +212,7 @@ export default function GlobalIssues() {
       </div>
     );
   }
+
   return (
     <div className="min-h-screen p-4 md:p-8" style={{background: '#0a0a0a', color:'#fff'}}>
       <div className="max-w-[1440px] mx-auto">
@@ -195,10 +265,91 @@ export default function GlobalIssues() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between pt-4 border-t border-[#27272a]">
-                  <span className="text-xs font-medium rounded-full px-3 py-1" style={{background:'#23232b', color:'#d4d4d8'}}>
-                    {issue.category}
-                  </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(issue.status)}`} style={{textTransform:'capitalize'}}>{issue.status.replace("_", " ")}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium rounded-full px-3 py-1" style={{background:'#23232b', color:'#d4d4d8'}}>
+                      {issue.category}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {/* Enhanced Voting Section */}
+                    <div 
+                      className="flex items-center rounded-lg overflow-hidden"
+                      style={{
+                        background: '#0a0a0a',
+                        border: '1px solid #27272a'
+                      }}
+                    >
+                      {/* Upvote Button */}
+                      <button
+                        onClick={(e) => handleVote(issue.id, 'upvote', e)}
+                        disabled={votingStates[issue.id]}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                        style={{
+                          background: issue.hasUpvoted ? '#10b98114' : 'transparent',
+                          color: issue.hasUpvoted ? '#10b981' : '#71717a',
+                          borderRight: '1px solid #27272a'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!issue.hasUpvoted && !votingStates[issue.id]) {
+                            e.currentTarget.style.background = '#10b98108';
+                            e.currentTarget.style.color = '#10b981';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!issue.hasUpvoted) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#71717a';
+                          }
+                        }}
+                        title="Upvote this issue"
+                      >
+                        <ArrowUp 
+                          className="w-4 h-4 transition-transform group-hover:scale-110 group-active:scale-95" 
+                          strokeWidth={2.5}
+                        />
+                        <span className="text-xs font-bold min-w-[18px] text-center">
+                          {issue.upvoteCount || 0}
+                        </span>
+                      </button>
+                      
+                      {/* Downvote Button */}
+                      <button
+                        onClick={(e) => handleVote(issue.id, 'downvote', e)}
+                        disabled={votingStates[issue.id]}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                        style={{
+                          background: issue.hasDownvoted ? '#ef444414' : 'transparent',
+                          color: issue.hasDownvoted ? '#ef4444' : '#71717a'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!issue.hasDownvoted && !votingStates[issue.id]) {
+                            e.currentTarget.style.background = '#ef444408';
+                            e.currentTarget.style.color = '#ef4444';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!issue.hasDownvoted) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#71717a';
+                          }
+                        }}
+                        title="Downvote this issue"
+                      >
+                        <ArrowDown 
+                          className="w-4 h-4 transition-transform group-hover:scale-110 group-active:scale-95" 
+                          strokeWidth={2.5}
+                        />
+                        <span className="text-xs font-bold min-w-[18px] text-center">
+                          {issue.downvoteCount || 0}
+                        </span>
+                      </button>
+                    </div>
+                    
+                    {/* Status Badge */}
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(issue.status)}`} style={{textTransform:'capitalize'}}>
+                      {issue.status.replace("_", " ")}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

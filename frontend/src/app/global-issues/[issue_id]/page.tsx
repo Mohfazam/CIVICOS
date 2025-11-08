@@ -18,6 +18,7 @@ import {
   Clock,
   ExternalLink,
   ArrowUp,
+  ArrowDown,
   MessageSquare,
   Send,
   Sparkles,
@@ -63,6 +64,15 @@ interface Upvote {
   upvotedAt: string;
 }
 
+interface Downvote {
+  citizen: {
+    id: string;
+    name: string;
+    constituency: string;
+  };
+  downvotedAt: string;
+}
+
 interface Issue {
   id: string;
   title: string;
@@ -75,7 +85,9 @@ interface Issue {
   status: "PENDING" | "IN_PROGRESS" | "RESOLVED";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   upvoteCount: number;
+  downvoteCount: number;
   hasUpvoted: boolean;
+  hasDownvoted: boolean;
   citizenId: string;
   mlaId: string | null;
   organizationId: string | null;
@@ -87,6 +99,7 @@ interface Issue {
   comments: Comment[];
   commentCount: number;
   upvotes: Upvote[];
+  downvotes: Downvote[];
 }
 
 export default function IssueDetailPage() {
@@ -99,7 +112,7 @@ export default function IssueDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUpvoting, setIsUpvoting] = useState(false);
+  const [isVoting, setIsVoting] = useState(false);
   const [citizenId, setCitizenId] = useState<string>("");
   const [commentSummaries, setCommentSummaries] = useState<{ [key: string]: string }>({});
   const [loadingSummaries, setLoadingSummaries] = useState<{ [key: string]: boolean }>({});
@@ -130,7 +143,6 @@ export default function IssueDetailPage() {
       const data = await response.json();
       if (data.success) {
         setIssue(data.issue);
-        // Generate summaries for all comments
         if (data.issue.comments && data.issue.comments.length > 0) {
           data.issue.comments.forEach((comment: Comment) => {
             generateCommentSummary(comment.id, comment.content);
@@ -186,15 +198,15 @@ export default function IssueDetailPage() {
     }
   };
 
-  const handleUpvote = async () => {
+  const handleVote = async (voteType: 'upvote' | 'downvote') => {
     if (!citizenId) {
-      alert("Please login to upvote");
+      alert("Please login to vote");
       return;
     }
-    setIsUpvoting(true);
+    setIsVoting(true);
     try {
       const response = await fetch(
-        `https://civiciobackend.vercel.app/api/v1/citizen/issue/${issueId}/upvote`,
+        `https://civiciobackend.vercel.app/api/v1/citizen/issue/${issueId}/${voteType}`,
         {
           method: "POST",
           headers: {
@@ -206,21 +218,21 @@ export default function IssueDetailPage() {
         }
       );
       if (!response.ok) {
-        throw new Error("Failed to upvote");
+        throw new Error(`Failed to ${voteType}`);
       }
       const data = await response.json();
       if (data.success) {
         await fetchIssueDetail();
       } else {
-        throw new Error(data.message || "Failed to upvote");
+        throw new Error(data.message || `Failed to ${voteType}`);
       }
     } catch (err) {
-      console.error("Upvote error:", err);
+      console.error("Vote error:", err);
       alert(
-        err instanceof Error ? err.message : "Failed to upvote. Please try again."
+        err instanceof Error ? err.message : `Failed to ${voteType}. Please try again.`
       );
     } finally {
-      setIsUpvoting(false);
+      setIsVoting(false);
     }
   };
 
@@ -462,6 +474,77 @@ export default function IssueDetailPage() {
               transition={{ delay: 0.1 }}
               className="lg:col-span-2 space-y-6"
             >
+              {/* Title and Voting Section */}
+              <div
+                className="rounded-[10px] p-6"
+                style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => handleVote('upvote')}
+                      disabled={isVoting}
+                      className="p-2 rounded-md transition-all hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: issue.hasUpvoted ? '#10b98114' : '#27272a',
+                        color: issue.hasUpvoted ? '#10b981' : '#a1a1aa',
+                        border: issue.hasUpvoted ? '1px solid #10b981' : 'none'
+                      }}
+                      title="Upvote"
+                    >
+                      <ArrowUp className="w-5 h-5" />
+                    </button>
+                    <span className="text-lg font-bold" style={{color:'#d4d4d8'}}>
+                      {(issue.upvoteCount || 0) - (issue.downvoteCount || 0)}
+                    </span>
+                    <button
+                      onClick={() => handleVote('downvote')}
+                      disabled={isVoting}
+                      className="p-2 rounded-md transition-all hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: issue.hasDownvoted ? '#ef444414' : '#27272a',
+                        color: issue.hasDownvoted ? '#ef4444' : '#a1a1aa',
+                        border: issue.hasDownvoted ? '1px solid #ef4444' : 'none'
+                      }}
+                      title="Downvote"
+                    >
+                      <ArrowDown className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between mb-3">
+                      <h1 className="text-2xl font-bold" style={{color:'#fff'}}>{issue.title}</h1>
+                      <span 
+                        className="px-3 py-1 rounded-full text-xs font-semibold ml-3"
+                        style={{
+                          background: severityStyle.bg,
+                          color: severityStyle.text,
+                          border: `1px solid ${severityStyle.border}`
+                        }}
+                      >
+                        {issue.severity}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span 
+                        className="px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"
+                        style={{
+                          background: statusStyle.bg,
+                          color: statusStyle.text,
+                          border: `1px solid ${statusStyle.border}`
+                        }}
+                      >
+                        {getStatusIcon(issue.status)}
+                        {issue.status.replace("_", " ")}
+                      </span>
+                      <span className="text-xs" style={{color:'#71717a'}}>
+                        Posted {formatRelativeTime(issue.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Image */}
               {issue.mediaUrl && (
                 <div
@@ -656,7 +739,7 @@ export default function IssueDetailPage() {
                   style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
                 >
                   <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                    <ArrowUp size={20} />
+                    <ArrowUp size={20} style={{color: '#10b981'}} />
                     Upvotes ({issue.upvoteCount})
                   </h2>
                   <div className="space-y-2">
@@ -676,6 +759,40 @@ export default function IssueDetailPage() {
                         </div>
                         <p className="text-xs font-medium" style={{ color: "#71717a" }}>
                           {formatRelativeTime(upvote.upvotedAt)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Downvotes Section */}
+              {issue.downvotes && issue.downvotes.length > 0 && (
+                <div
+                  className="rounded-[10px] p-6"
+                  style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+                >
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <ArrowDown size={20} style={{color: '#ef4444'}} />
+                    Downvotes ({issue.downvoteCount})
+                  </h2>
+                  <div className="space-y-2">
+                    {issue.downvotes.map((downvote, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 rounded-[10px]"
+                        style={{ backgroundColor: "#0a0a0a", border: "1px solid #27272a" }}
+                      >
+                        <div>
+                          <p className="font-semibold text-sm">
+                            {downvote.citizen.name}
+                          </p>
+                          <p className="text-xs font-medium mt-0.5" style={{ color: "#71717a" }}>
+                            {downvote.citizen.constituency}
+                          </p>
+                        </div>
+                        <p className="text-xs font-medium" style={{ color: "#71717a" }}>
+                          {formatRelativeTime(downvote.downvotedAt)}
                         </p>
                       </div>
                     ))}
