@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Navbar } from "@/app/_components/navbar";
 import { Footer } from "@/app/_components/footer";
@@ -23,6 +23,7 @@ import {
   Send,
   Sparkles,
 } from "lucide-react";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface Citizen {
   id: string;
@@ -114,13 +115,22 @@ export default function IssueDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
   const [citizenId, setCitizenId] = useState<string>("");
-  const [commentSummaries, setCommentSummaries] = useState<{ [key: string]: string }>({});
-  const [loadingSummaries, setLoadingSummaries] = useState<{ [key: string]: boolean }>({});
+  const [overallSummary, setOverallSummary] = useState<string>("");
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  
+  // Ref for genAI instance
+  const genAIRef = useRef<GoogleGenerativeAI | null>(null);
 
   useEffect(() => {
     const storedCitizenId = localStorage.getItem("id");
     if (storedCitizenId) {
       setCitizenId(storedCitizenId);
+    }
+
+    // Initialize Google Generative AI
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (apiKey) {
+      genAIRef.current = new GoogleGenerativeAI(apiKey);
     }
   }, []);
 
@@ -143,10 +153,16 @@ export default function IssueDetailPage() {
       const data = await response.json();
       if (data.success) {
         setIssue(data.issue);
-        if (data.issue.comments && data.issue.comments.length > 0) {
-          data.issue.comments.forEach((comment: Comment) => {
-            generateCommentSummary(comment.id, comment.content);
-          });
+        
+        // Check if overall summary exists in cache
+        const summaryKey = `overall_summary_${issueId}`;
+        try {
+          const cachedSummary = localStorage.getItem(summaryKey);
+          if (cachedSummary) {
+            setOverallSummary(cachedSummary);
+          }
+        } catch (e) {
+          console.error("Cache read error:", e);
         }
       } else {
         throw new Error("API returned unsuccessful response");
@@ -158,44 +174,87 @@ export default function IssueDetailPage() {
     }
   };
 
-  const generateCommentSummary = async (commentId: string, content: string) => {
-    if (commentSummaries[commentId] || loadingSummaries[commentId]) {
+  const generateOverallSummary = async () => {
+    if (!issue || issue.comments.length === 0) return;
+    
+    // Check cache first
+    const summaryKey = `overall_summary_${issueId}`;
+    try {
+      const cachedSummary = localStorage.getItem(summaryKey);
+      if (cachedSummary) {
+        setOverallSummary(cachedSummary);
+        return;
+      }
+    } catch (e) {
+      console.error("Cache read error:", e);
+    }
+
+    if (!genAIRef.current) {
+      setOverallSummary("AI not configured");
       return;
     }
-    setLoadingSummaries(prev => ({ ...prev, [commentId]: true }));
+
+    setIsGeneratingSummary(true);
+    
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Summarize this civic issue comment in 1-2 concise sentences. Focus on the key point or concern raised:\n\n"${content}"`
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 100,
-            }
-          }),
-        }
+      console.log("🔄 Generating overall comments summary...");
+
+      // Prepare all comments text
+      const allCommentsText = issue.comments.map((comment, index) => 
+        `Comment ${index + 1} by ${comment.author.name} (${comment.author.constituency}):\n${comment.content}`
+      ).join('\n\n');
+
+      const model = genAIRef.current.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+      
+      const result = await model.generateContent(
+        `Analyze these ${issue.comments.length} comments on a civic issue and provide a comprehensive summary. 
+        
+For each major point of discussion:
+- Mention who said what (include their name)
+- Summarize their key concern or opinion
+
+Format the summary as bullet points with names.
+
+Comments:
+${allCommentsText.substring(0, 3000)}`
       );
-      if (!response.ok) {
-        throw new Error("Failed to generate summary");
+      
+      const summary = result.response.text();
+      
+      if (summary) {
+        const trimmedSummary = summary.trim();
+        // Cache in localStorage
+        try {
+          localStorage.setItem(summaryKey, trimmedSummary);
+        } catch (e) {
+          console.error("Cache write error:", e);
+        }
+        setOverallSummary(trimmedSummary);
+        console.log("✅ Overall summary cached");
+      } else {
+        throw new Error("No summary generated");
       }
-      const data = await response.json();
-      const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "Summary unavailable";
-      setCommentSummaries(prev => ({ ...prev, [commentId]: summary }));
     } catch (err) {
-      console.error("Summary generation error:", err);
-      setCommentSummaries(prev => ({ ...prev, [commentId]: "AI summary unavailable" }));
+      console.error("❌ Summary error:", err);
+      
+      let errorMessage = "Unable to generate summary";
+      if (err instanceof Error) {
+        if (err.message.includes('API key')) {
+          errorMessage = "API configuration error";
+        } else if (err.message.includes('quota')) {
+          errorMessage = "API quota exceeded";
+        }
+      }
+      
+      setOverallSummary(errorMessage);
     } finally {
-      setLoadingSummaries(prev => ({ ...prev, [commentId]: false }));
+      setIsGeneratingSummary(false);
     }
+  };
+
+  const generateCommentSummary = async (commentId: string, content: string) => {
+    // This function is no longer used but kept for compatibility
+    return;
   };
 
   const handleVote = async (voteType: 'upvote' | 'downvote') => {
@@ -612,10 +671,83 @@ export default function IssueDetailPage() {
                 className="rounded-[10px] p-6"
                 style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
               >
-                <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                  <MessageSquare size={20} />
-                  Comments ({issue.commentCount})
-                </h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <MessageSquare size={20} />
+                    Comments ({issue.commentCount})
+                  </h2>
+                  {issue.comments.length > 0 && (
+                    <button
+                      onClick={generateOverallSummary}
+                      disabled={isGeneratingSummary || !!overallSummary}
+                      className="flex items-center gap-2 px-4 py-2 rounded-[8px] text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ 
+                        backgroundColor: "#3b82f6",
+                        color: "#ffffff",
+                        border: "1px solid #3b82f6"
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isGeneratingSummary && !overallSummary) {
+                          e.currentTarget.style.backgroundColor = "#2563eb";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isGeneratingSummary && !overallSummary) {
+                          e.currentTarget.style.backgroundColor = "#3b82f6";
+                        }
+                      }}
+                    >
+                      <Sparkles size={16} />
+                      {isGeneratingSummary 
+                        ? "Generating Summary..." 
+                        : overallSummary
+                        ? "Summary Generated"
+                        : "Generate Summary"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Overall Summary Card */}
+                {(overallSummary || isGeneratingSummary) && (
+                  <div
+                    className="mb-6 p-5 rounded-[10px] border"
+                    style={{ 
+                      backgroundColor: "#0a0a0a", 
+                      borderColor: "#3b82f6",
+                      borderWidth: "2px"
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles size={18} style={{ color: "#3b82f6" }} />
+                      <h3 className="text-base font-bold" style={{ color: "#3b82f6" }}>
+                        Overall Discussion Summary
+                      </h3>
+                    </div>
+                    {isGeneratingSummary ? (
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="animate-spin rounded-full h-5 w-5"
+                          style={{ 
+                            border: "2px solid transparent", 
+                            borderTopColor: "#3b82f6", 
+                            borderBottomColor: "#3b82f6" 
+                          }}
+                        />
+                        <span className="text-sm" style={{ color: "#a1a1aa" }}>
+                          Analyzing all comments and generating comprehensive summary...
+                        </span>
+                      </div>
+                    ) : (
+                      <div 
+                        className="text-sm leading-relaxed whitespace-pre-wrap" 
+                        style={{ color: "#d4d4d8" }}
+                      >
+                        {overallSummary}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <form onSubmit={handleCommentSubmit} className="mb-6">
                   <textarea
                     value={newComment}
@@ -700,32 +832,6 @@ export default function IssueDetailPage() {
                         <p className="text-sm leading-relaxed mb-3" style={{ color: "#d4d4d8" }}>
                           {comment.content}
                         </p>
-                        <div
-                          className="mt-3 p-3 rounded-[8px] border"
-                          style={{ backgroundColor: "#0a0a0a", borderColor: "#27272a" }}
-                        >
-                          <div className="flex items-center gap-2 mb-2">
-                            <Sparkles size={14} style={{ color: "#3b82f6" }} />
-                            <span className="text-xs font-semibold" style={{ color: "#3b82f6" }}>
-                              AI Summary
-                            </span>
-                          </div>
-                          {loadingSummaries[comment.id] ? (
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="animate-spin rounded-full h-3 w-3"
-                                style={{ border: "2px solid transparent", borderTopColor: "#3b82f6", borderBottomColor: "#3b82f6" }}
-                              />
-                              <span className="text-xs" style={{ color: "#71717a" }}>
-                                Generating summary...
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
-                              {commentSummaries[comment.id] || "Summary unavailable"}
-                            </p>
-                          )}
-                        </div>
                       </div>
                     ))
                   )}
