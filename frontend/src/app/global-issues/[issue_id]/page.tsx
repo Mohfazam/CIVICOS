@@ -20,6 +20,7 @@ import {
   ArrowUp,
   MessageSquare,
   Send,
+  Sparkles,
 } from "lucide-react";
 
 interface Citizen {
@@ -100,9 +101,10 @@ export default function IssueDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUpvoting, setIsUpvoting] = useState(false);
   const [citizenId, setCitizenId] = useState<string>("");
+  const [commentSummaries, setCommentSummaries] = useState<{ [key: string]: string }>({});
+  const [loadingSummaries, setLoadingSummaries] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
-    // Get citizen ID from localStorage
     const storedCitizenId = localStorage.getItem("id");
     if (storedCitizenId) {
       setCitizenId(storedCitizenId);
@@ -113,6 +115,7 @@ export default function IssueDetailPage() {
     if (issueId) {
       fetchIssueDetail();
     }
+    // eslint-disable-next-line
   }, [issueId]);
 
   const fetchIssueDetail = async () => {
@@ -121,15 +124,18 @@ export default function IssueDetailPage() {
       const response = await fetch(
         `https://civiciobackend.vercel.app/api/v1/citizen/issue/${issueId}`
       );
-
       if (!response.ok) {
         throw new Error("Failed to fetch issue details");
       }
-
       const data = await response.json();
-
       if (data.success) {
         setIssue(data.issue);
+        // Generate summaries for all comments
+        if (data.issue.comments && data.issue.comments.length > 0) {
+          data.issue.comments.forEach((comment: Comment) => {
+            generateCommentSummary(comment.id, comment.content);
+          });
+        }
       } else {
         throw new Error("API returned unsuccessful response");
       }
@@ -140,12 +146,51 @@ export default function IssueDetailPage() {
     }
   };
 
+  const generateCommentSummary = async (commentId: string, content: string) => {
+    if (commentSummaries[commentId] || loadingSummaries[commentId]) {
+      return;
+    }
+    setLoadingSummaries(prev => ({ ...prev, [commentId]: true }));
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `Summarize this civic issue comment in 1-2 concise sentences. Focus on the key point or concern raised:\n\n"${content}"`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 100,
+            }
+          }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to generate summary");
+      }
+      const data = await response.json();
+      const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "Summary unavailable";
+      setCommentSummaries(prev => ({ ...prev, [commentId]: summary }));
+    } catch (err) {
+      console.error("Summary generation error:", err);
+      setCommentSummaries(prev => ({ ...prev, [commentId]: "AI summary unavailable" }));
+    } finally {
+      setLoadingSummaries(prev => ({ ...prev, [commentId]: false }));
+    }
+  };
+
   const handleUpvote = async () => {
     if (!citizenId) {
       alert("Please login to upvote");
       return;
     }
-
     setIsUpvoting(true);
     try {
       const response = await fetch(
@@ -160,22 +205,20 @@ export default function IssueDetailPage() {
           }),
         }
       );
-
       if (!response.ok) {
         throw new Error("Failed to upvote");
       }
-
       const data = await response.json();
-      
       if (data.success) {
-        // Refresh issue to get updated upvote count and status
         await fetchIssueDetail();
       } else {
         throw new Error(data.message || "Failed to upvote");
       }
     } catch (err) {
       console.error("Upvote error:", err);
-      alert(err instanceof Error ? err.message : "Failed to upvote. Please try again.");
+      alert(
+        err instanceof Error ? err.message : "Failed to upvote. Please try again."
+      );
     } finally {
       setIsUpvoting(false);
     }
@@ -184,21 +227,12 @@ export default function IssueDetailPage() {
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
-
     if (!citizenId) {
       alert("Please login to comment");
       return;
     }
-
     setIsSubmitting(true);
     try {
-      console.log("Posting comment:", {
-        issueId,
-        content: newComment.trim(),
-        authorType: "CITIZEN",
-        authorId: citizenId,
-      });
-
       const response = await fetch(
         `https://civiciobackend.vercel.app/api/v1/citizen/issue/${issueId}/comment`,
         {
@@ -213,67 +247,66 @@ export default function IssueDetailPage() {
           }),
         }
       );
-
       const data = await response.json();
-      console.log("Comment response:", data);
-
       if (!response.ok) {
         throw new Error(data.message || `Server error: ${response.status}`);
       }
-      
       if (data.success) {
         setNewComment("");
-        // Refresh issue to get updated comments
         await fetchIssueDetail();
       } else {
         throw new Error(data.message || "Failed to post comment");
       }
     } catch (err) {
       console.error("Comment error:", err);
-      alert(err instanceof Error ? err.message : "Failed to post comment. Please try again.");
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Failed to post comment. Please try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getSeverityColor = (severity: string) => {
+  const getSeverityStyle = (severity: string) => {
     switch (severity) {
       case "CRITICAL":
-        return "bg-red-100 text-red-800 border-red-300";
+        return { bg: "#ef444414", text: "#ef4444", border: "#ef4444" };
       case "HIGH":
-        return "bg-orange-100 text-orange-800 border-orange-300";
+        return { bg: "#f9731614", text: "#f97316", border: "#f97316" };
       case "MEDIUM":
-        return "bg-yellow-100 text-yellow-800 border-yellow-300";
+        return { bg: "#eab30814", text: "#eab308", border: "#eab308" };
       case "LOW":
-        return "bg-green-100 text-green-800 border-green-300";
+        return { bg: "#10b98114", text: "#10b981", border: "#10b981" };
       default:
-        return "bg-gray-100 text-gray-800 border-gray-300";
+        return { bg: "#71717a14", text: "#71717a", border: "#71717a" };
+    }
+  };
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case "RESOLVED":
+        return { bg: "#10b98114", text: "#10b981", border: "#10b981" };
+      case "IN_PROGRESS":
+        return { bg: "#3b82f614", text: "#3b82f6", border: "#3b82f6" };
+      case "PENDING":
+        return { bg: "#71717a14", text: "#71717a", border: "#71717a" };
+      default:
+        return { bg: "#71717a14", text: "#71717a", border: "#71717a" };
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "RESOLVED":
-        return <CheckCircle className="w-5 h-5" />;
+        return <CheckCircle className="w-4 h-4" />;
       case "IN_PROGRESS":
-        return <Clock className="w-5 h-5" />;
+        return <Clock className="w-4 h-4" />;
       case "PENDING":
-        return <AlertCircle className="w-5 h-5" />;
+        return <AlertCircle className="w-4 h-4" />;
       default:
-        return <AlertCircle className="w-5 h-5" />;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "RESOLVED":
-        return "bg-green-100 text-green-800 border-green-300";
-      case "IN_PROGRESS":
-        return "bg-blue-100 text-blue-800 border-blue-300";
-      case "PENDING":
-        return "bg-gray-100 text-gray-800 border-gray-300";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-300";
+        return <AlertCircle className="w-4 h-4" />;
     }
   };
 
@@ -295,7 +328,6 @@ export default function IssueDetailPage() {
     const diffInMins = Math.floor(diffInMs / 60000);
     const diffInHours = Math.floor(diffInMs / 3600000);
     const diffInDays = Math.floor(diffInMs / 86400000);
-
     if (diffInMins < 1) return "Just now";
     if (diffInMins < 60) return `${diffInMins}m ago`;
     if (diffInHours < 24) return `${diffInHours}h ago`;
@@ -314,12 +346,28 @@ export default function IssueDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div
+        className="min-h-screen flex flex-col"
+        style={{
+          fontFamily: "Inter, system-ui, sans-serif",
+          backgroundColor: "#0a0a0a",
+          color: "#ffffff"
+        }}
+      >
         <Navbar />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading issue details...</p>
+            <div
+              className="animate-spin rounded-full h-12 w-12 mx-auto"
+              style={{
+                border: "2px solid transparent",
+                borderTopColor: "#3b82f6",
+                borderBottomColor: "#3b82f6"
+              }}
+            />
+            <p className="mt-4 text-sm font-medium" style={{ color: "#a1a1aa" }}>
+              Loading issue details...
+            </p>
           </div>
         </div>
         <Footer />
@@ -329,17 +377,41 @@ export default function IssueDetailPage() {
 
   if (error || !issue) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div
+        className="min-h-screen flex flex-col"
+        style={{
+          fontFamily: "Inter, system-ui, sans-serif",
+          backgroundColor: "#0a0a0a",
+          color: "#ffffff"
+        }}
+      >
         <Navbar />
         <div className="flex-1 flex items-center justify-center p-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md text-center">
-            <AlertCircle className="w-12 h-12 text-red-600 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-red-800 mb-2">
+          <div
+            className="rounded-[10px] p-8 max-w-md text-center"
+            style={{
+              backgroundColor: "#18181b",
+              border: "1px solid #ef4444"
+            }}
+          >
+            <AlertCircle className="w-12 h-12 mx-auto mb-4" style={{ color: "#ef4444" }} />
+            <h2 className="text-xl font-bold mb-2" style={{ color: "#ffffff" }}>
               {error || "Issue not found"}
             </h2>
             <button
               onClick={() => router.back()}
-              className="mt-4 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="mt-6 px-6 rounded-[10px] font-medium transition-colors"
+              style={{
+                height: "44px",
+                backgroundColor: "#ef4444",
+                color: "#ffffff"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "#dc2626";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "#ef4444";
+              }}
             >
               Go Back
             </button>
@@ -350,119 +422,101 @@ export default function IssueDetailPage() {
     );
   }
 
-  return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar />
+  const severityStyle = getSeverityStyle(issue.severity);
+  const statusStyle = getStatusStyle(issue.status);
 
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        backgroundColor: "#0a0a0a",
+        color: "#ffffff"
+      }}
+    >
+      <Navbar />
       <main className="flex-1 pt-24 pb-12">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Back Button */}
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <motion.button
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 transition-colors"
+            className="flex items-center gap-2 mb-8 transition-colors font-medium"
+            style={{ height: "44px", color: "#a1a1aa" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#ffffff";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "#a1a1aa";
+            }}
           >
             <ArrowLeft size={20} />
             <span>Back to Issues</span>
           </motion.button>
 
-          {/* Issue Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-lg shadow-md p-6 mb-6"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
-              <h1 className="text-3xl font-bold text-gray-900 flex-1">
-                {issue.title}
-              </h1>
-              <div className="flex gap-2">
-                <span
-                  className={`px-3 py-1 rounded-full text-sm font-medium border ${getSeverityColor(
-                    issue.severity
-                  )}`}
-                >
-                  {issue.severity}
-                </span>
-                <span
-                  className={`px-3 py-1 rounded-full text-sm font-medium border flex items-center gap-1 ${getStatusColor(
-                    issue.status
-                  )}`}
-                >
-                  {getStatusIcon(issue.status)}
-                  {issue.status.replace("_", " ")}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-              <div className="flex items-center gap-1">
-                <Calendar size={16} />
-                <span>Created: {formatDate(issue.createdAt)}</span>
-              </div>
-              <span className="px-2 py-1 bg-gray-100 rounded-full text-xs font-medium">
-                {issue.category}
-              </span>
-              <button
-                onClick={handleUpvote}
-                disabled={isUpvoting}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                  issue.hasUpvoted
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
-                    : "bg-white border-2 border-gray-300 text-gray-700 hover:border-blue-500 hover:text-blue-600"
-                }`}
-              >
-                <ArrowUp size={18} className={isUpvoting ? "animate-bounce" : ""} />
-                <span className="font-semibold">{issue.upvoteCount}</span>
-                <span className="text-sm">{issue.hasUpvoted ? "Upvoted" : "Upvote"}</span>
-              </button>
-              <div className="flex items-center gap-1 text-gray-600">
-                <MessageSquare size={14} />
-                <span className="text-xs font-medium">{issue.commentCount}</span>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Main Content Grid */}
-          <div className="grid md:grid-cols-3 gap-6">
-            {/* Left Column - Image & Description */}
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Left Column */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="md:col-span-2 space-y-6"
+              className="lg:col-span-2 space-y-6"
             >
               {/* Image */}
               {issue.mediaUrl && (
-                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                <div
+                  className="rounded-[10px] overflow-hidden"
+                  style={{
+                    backgroundColor: "#18181b",
+                    border: "1px solid #27272a"
+                  }}
+                >
                   <img
                     src={issue.mediaUrl}
                     alt={issue.title}
-                    className="w-full h-96 object-cover"
+                    className="w-full h-[400px] object-cover"
                   />
                 </div>
               )}
 
               {/* Description */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold mb-3">Description</h2>
-                <p className="text-gray-700 leading-relaxed">
+              <div
+                className="rounded-[10px] p-6"
+                style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+              >
+                <h2 className="text-xl font-bold mb-4">Description</h2>
+                <p className="leading-relaxed text-sm" style={{ color: "#d4d4d8" }}>
                   {issue.description}
                 </p>
               </div>
 
               {/* Location */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold mb-3 flex items-center gap-2">
+              <div
+                className="rounded-[10px] p-6"
+                style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+              >
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <MapPin size={20} />
                   Location
                 </h2>
-                <p className="text-gray-700 mb-3">{issue.location}</p>
+                <p className="mb-4 text-sm font-medium" style={{ color: "#d4d4d8" }}>
+                  {issue.location}
+                </p>
                 {issue.latitude && issue.longitude && (
                   <button
                     onClick={openInGoogleMaps}
-                    className="flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    className="flex items-center gap-2 px-4 rounded-[10px] text-sm font-semibold transition-colors"
+                    style={{
+                      height: "44px",
+                      border: "1px solid #3b82f6",
+                      color: "#3b82f6"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#3b82f614";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
                   >
                     <ExternalLink size={16} />
                     Open in Google Maps
@@ -471,30 +525,56 @@ export default function IssueDetailPage() {
               </div>
 
               {/* Comments Section */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <div
+                className="rounded-[10px] p-6"
+                style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+              >
+                <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
                   <MessageSquare size={20} />
                   Comments ({issue.commentCount})
                 </h2>
-
-                {/* Comment Form */}
                 <form onSubmit={handleCommentSubmit} className="mb-6">
                   <textarea
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder="Add a comment..."
-                    className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-4 rounded-[10px] resize-none focus:outline-none transition-colors text-sm"
+                    style={{ backgroundColor: "#0a0a0a", border: "1px solid #27272a", color: "#ffffff" }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = "#3b82f6";
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = "#27272a";
+                    }}
                     rows={3}
                   />
-                  <div className="flex justify-end mt-2">
+                  <div className="flex justify-end mt-3">
                     <button
                       type="submit"
                       disabled={!newComment.trim() || isSubmitting}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                      className="flex items-center gap-2 px-5 rounded-[10px] font-semibold text-sm transition-colors disabled:cursor-not-allowed"
+                      style={{
+                        height: "44px",
+                        backgroundColor: !newComment.trim() || isSubmitting ? "#27272a" : "#3b82f6",
+                        color: !newComment.trim() || isSubmitting ? "#71717a" : "#ffffff"
+                      }}
+                      onMouseEnter={(e) => {
+                        if (newComment.trim() && !isSubmitting) {
+                          e.currentTarget.style.backgroundColor = "#2563eb";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (newComment.trim() && !isSubmitting) {
+                          e.currentTarget.style.backgroundColor = "#3b82f6";
+                        }
+                      }}
                     >
                       {isSubmitting ? (
                         <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          <div
+                            className="animate-spin rounded-full h-4 w-4"
+                            style={{ border: "2px solid transparent", borderTopColor: "#ffffff", borderBottomColor: "#ffffff" }}
+                          />
                           Posting...
                         </>
                       ) : (
@@ -506,33 +586,63 @@ export default function IssueDetailPage() {
                     </button>
                   </div>
                 </form>
-
-                {/* Comments List */}
                 <div className="space-y-4">
                   {issue.comments.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">
+                    <p className="text-center py-8 text-sm" style={{ color: "#71717a" }}>
                       No comments yet. Be the first to comment!
                     </p>
                   ) : (
                     issue.comments.map((comment) => (
                       <div
                         key={comment.id}
-                        className="border-l-2 border-blue-200 pl-4 py-2"
+                        className="pl-4 py-3"
+                        style={{ borderLeft: "2px solid #3b82f6" }}
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <p className="font-semibold text-sm">
                               {comment.author.name}
                             </p>
-                            <p className="text-xs text-gray-500">
-                              {comment.author.constituency} • {formatRelativeTime(comment.createdAt)}
+                            <p className="text-xs font-medium mt-0.5" style={{ color: "#71717a" }}>
+                              {comment.author.constituency} · {formatRelativeTime(comment.createdAt)}
                             </p>
                           </div>
-                          <span className="text-xs px-2 py-1 bg-gray-100 rounded-full">
+                          <span
+                            className="text-xs px-2 py-1 rounded-[6px] font-medium"
+                            style={{ backgroundColor: "#27272a", color: "#a1a1aa" }}
+                          >
                             {comment.author.type}
                           </span>
                         </div>
-                        <p className="text-gray-700 text-sm">{comment.content}</p>
+                        <p className="text-sm leading-relaxed mb-3" style={{ color: "#d4d4d8" }}>
+                          {comment.content}
+                        </p>
+                        <div
+                          className="mt-3 p-3 rounded-[8px] border"
+                          style={{ backgroundColor: "#0a0a0a", borderColor: "#27272a" }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles size={14} style={{ color: "#3b82f6" }} />
+                            <span className="text-xs font-semibold" style={{ color: "#3b82f6" }}>
+                              AI Summary
+                            </span>
+                          </div>
+                          {loadingSummaries[comment.id] ? (
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="animate-spin rounded-full h-3 w-3"
+                                style={{ border: "2px solid transparent", borderTopColor: "#3b82f6", borderBottomColor: "#3b82f6" }}
+                              />
+                              <span className="text-xs" style={{ color: "#71717a" }}>
+                                Generating summary...
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
+                              {commentSummaries[comment.id] || "Summary unavailable"}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -541,8 +651,11 @@ export default function IssueDetailPage() {
 
               {/* Upvotes Section */}
               {issue.upvotes.length > 0 && (
-                <div className="bg-white rounded-lg shadow-md p-6">
-                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <div
+                  className="rounded-[10px] p-6"
+                  style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+                >
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                     <ArrowUp size={20} />
                     Upvotes ({issue.upvoteCount})
                   </h2>
@@ -550,17 +663,18 @@ export default function IssueDetailPage() {
                     {issue.upvotes.map((upvote, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                        className="flex items-center justify-between p-3 rounded-[10px]"
+                        style={{ backgroundColor: "#0a0a0a", border: "1px solid #27272a" }}
                       >
                         <div>
-                          <p className="font-medium text-sm">
+                          <p className="font-semibold text-sm">
                             {upvote.citizen.name}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs font-medium mt-0.5" style={{ color: "#71717a" }}>
                             {upvote.citizen.constituency}
                           </p>
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs font-medium" style={{ color: "#71717a" }}>
                           {formatRelativeTime(upvote.upvotedAt)}
                         </p>
                       </div>
@@ -578,103 +692,64 @@ export default function IssueDetailPage() {
               className="space-y-6"
             >
               {/* Reporter Info */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <div
+                className="rounded-[10px] p-6"
+                style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+              >
+                <h2 className="text-lg font-bold mb-5 flex items-center gap-2">
                   <User size={20} />
                   Reported By
                 </h2>
-                <div className="space-y-2">
+                <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-gray-500">Name</p>
-                    <p className="font-medium">{issue.citizen.name}</p>
+                    <p className="text-sm font-medium">{issue.citizen.name}</p>
+                    <p className="text-xs" style={{ color: "#71717a" }}>{issue.citizen.constituency}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium text-sm">{issue.citizen.email}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Constituency</p>
-                    <p className="font-medium">{issue.citizen.constituency}</p>
+                  <div className="flex items-center gap-2 text-xs" style={{ color: "#a1a1aa" }}>
+                    <Mail size={16} />
+                    <span>{issue.citizen.email}</span>
                   </div>
                 </div>
               </div>
-
               {/* MLA Info */}
               {issue.mla && (
-                <div className="bg-white rounded-lg shadow-md p-6">
-                  <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <div
+                  className="rounded-[10px] p-6"
+                  style={{ backgroundColor: "#18181b", border: "1px solid #27272a" }}
+                >
+                  <h2 className="text-lg font-bold mb-5 flex items-center gap-2">
                     <Users size={20} />
                     Assigned MLA
                   </h2>
                   <div className="space-y-3">
                     <div>
-                      <p className="text-sm text-gray-500">Name</p>
-                      <p className="font-medium text-lg">{issue.mla.name}</p>
+                      <p className="font-medium text-sm">{issue.mla.name}</p>
+                      <p className="text-xs"><span style={{ color: "#a1a1aa" }}>{issue.mla.party}</span> • {issue.mla.constituency}</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Party</p>
-                      <p className="font-medium">{issue.mla.party}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Constituency</p>
-                      <p className="font-medium">{issue.mla.constituency}</p>
-                    </div>
-                    <div className="pt-3 border-t border-gray-100 space-y-2">
-                      <a
-                        href={`mailto:${issue.mla.email}`}
-                        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
-                      >
-                        <Mail size={14} />
-                        {issue.mla.email}
-                      </a>
-                      {issue.mla.phone && (
-                        <a
-                          href={`tel:${issue.mla.phone}`}
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
-                        >
-                          <Phone size={14} />
-                          {issue.mla.phone}
-                        </a>
-                      )}
-                    </div>
+                    {issue.mla.email && (
+                      <div className="flex items-center gap-2 text-xs" style={{ color: "#a1a1aa" }}>
+                        <Mail size={16} />
+                        <span>{issue.mla.email}</span>
+                      </div>
+                    )}
+                    {issue.mla.phone && (
+                      <div className="flex items-center gap-2 text-xs" style={{ color: "#a1a1aa" }}>
+                        <Phone size={16} />
+                        <span>{issue.mla.phone}</span>
+                      </div>
+                    )}
+                    {issue.mla.rating !== null && (
+                      <div className="flex items-center gap-2 text-xs" style={{ color: "#a1a1aa" }}>
+                        <span>Rating:</span> <span>{issue.mla.rating.toFixed(1)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
-
-              {/* Timeline */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-lg font-semibold mb-4">Timeline</h2>
-                <div className="space-y-3">
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                      <div className="w-0.5 h-full bg-gray-200"></div>
-                    </div>
-                    <div className="pb-4">
-                      <p className="text-sm font-medium">Issue Created</p>
-                      <p className="text-xs text-gray-500">
-                        {formatDate(issue.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Last Updated</p>
-                      <p className="text-xs text-gray-500">
-                        {formatDate(issue.updatedAt)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </motion.div>
           </div>
         </div>
       </main>
-
       <Footer />
     </div>
   );
